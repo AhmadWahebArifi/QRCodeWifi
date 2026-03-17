@@ -11,23 +11,35 @@ function App() {
   const uploadImage = async (file) => {
     setIsUploading(true);
     try {
+      console.log("Starting upload for file:", file.name, "Size:", file.size);
+
       const formData = new FormData();
       formData.append("file", file);
+
+      console.log("Sending request to /api/upload");
 
       const response = await fetch("/api/upload", {
         method: "POST",
         body: formData,
       });
 
+      console.log("Response status:", response.status);
+      console.log("Response headers:", response.headers);
+
       if (!response.ok) {
-        throw new Error("Upload failed");
+        const errorText = await response.text();
+        console.error("Response error text:", errorText);
+        throw new Error(`Upload failed: ${response.status} - ${errorText}`);
       }
 
       const data = await response.json();
+      console.log("Upload success:", data);
       return data.url;
     } catch (error) {
       console.error("Upload error:", error);
-      alert("Failed to upload image. Please try again.");
+      alert(
+        `Upload failed: ${error.message}. Please check console for details.`,
+      );
       return null;
     } finally {
       setIsUploading(false);
