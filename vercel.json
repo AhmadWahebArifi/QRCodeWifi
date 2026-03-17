@@ -4,8 +4,8 @@
   "outputDirectory": "dist",
   "installCommand": "npm install",
   "functions": {
-    "api/**/*.js": {
-      "runtime": "edge"
+    "pages/api/*.js": {
+      "runtime": "@vercel/node"
     }
   }
 }
