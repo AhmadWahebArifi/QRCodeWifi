@@ -1,10 +1,36 @@
+import { put } from "@vercel/blob";
+
 export const config = {
   runtime: "edge",
 };
 
+function corsHeaders() {
+  return {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+  };
+}
+
 export default async function handler(request) {
+  // Handle CORS preflight
+  if (request.method === "OPTIONS") {
+    return new Response(null, {
+      status: 200,
+      headers: corsHeaders(),
+    });
+  }
+
+  console.log("Upload request received");
+
   if (request.method !== "POST") {
-    return new Response("Method not allowed", { status: 405 });
+    return new Response(JSON.stringify({ error: "Method not allowed" }), {
+      status: 405,
+      headers: {
+        "Content-Type": "application/json",
+        ...corsHeaders(),
+      },
+    });
   }
 
   try {
@@ -12,54 +38,48 @@ export default async function handler(request) {
     const file = formData.get("file");
 
     if (!file) {
+      console.log("No file provided in request");
       return new Response(JSON.stringify({ error: "No file provided" }), {
         status: 400,
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...corsHeaders(),
+        },
       });
     }
 
-    // Get Blob token from environment
-    const token = process.env.BLOB_READ_WRITE_TOKEN;
+    console.log("File received:", file.name, "Size:", file.size);
 
-    if (!token) {
-      return new Response(
-        JSON.stringify({ error: "BLOB_READ_WRITE_TOKEN not set" }),
-        {
-          status: 500,
-          headers: { "Content-Type": "application/json" },
-        },
-      );
-    }
-
-    // Upload to Vercel Blob using fetch API
-    const uploadFormData = new FormData();
-    uploadFormData.append("file", file, file.name);
-
-    const response = await fetch("https://blob.vercel-storage.com/upload", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-      body: uploadFormData,
+    const blob = await put(file.name, file, {
+      access: "public",
     });
 
-    if (!response.ok) {
-      throw new Error(`Upload failed: ${response.status}`);
-    }
+    console.log("Upload successful:", blob.url);
 
-    const result = await response.json();
-
-    return new Response(JSON.stringify({ url: result.url }), {
+    return new Response(JSON.stringify({ url: blob.url }), {
       status: 200,
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...corsHeaders(),
+      },
     });
   } catch (error) {
-    console.error("Upload error:", error);
+    console.error("Upload error details:", error);
+    console.error("Error message:", error.message);
+    console.error("Error stack:", error.stack);
+
     return new Response(
-      JSON.stringify({ error: error.message || "Upload failed" }),
+      JSON.stringify({
+        error: "Upload failed",
+        details: error.message,
+        stack: error.stack,
+      }),
       {
         status: 500,
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...corsHeaders(),
+        },
       },
     );
   }
