@@ -50,6 +50,15 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    return res.status(500).json({
+      error: "Upload failed",
+      details: "Missing BLOB_READ_WRITE_TOKEN env var on server",
+      vercelEnv: process.env.VERCEL_ENV || null,
+      nodeEnv: process.env.NODE_ENV || null,
+    });
+  }
+
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
