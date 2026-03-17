@@ -1,86 +1,76 @@
 import { put } from "@vercel/blob";
+import Busboy from "busboy";
 
-export const config = {
-  runtime: "edge",
-};
-
-function corsHeaders() {
-  return {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-  };
+function setCors(res) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 }
 
-export default async function handler(request) {
-  // Handle CORS preflight
-  if (request.method === "OPTIONS") {
-    return new Response(null, {
-      status: 200,
-      headers: corsHeaders(),
+function parseMultipart(req) {
+  return new Promise((resolve, reject) => {
+    const bb = Busboy({ headers: req.headers });
+
+    let fileBuffer = null;
+    let fileName = null;
+    let mimeType = null;
+
+    bb.on("file", (_fieldname, file, info) => {
+      const { filename, mimeType: mt } = info;
+      fileName = filename;
+      mimeType = mt;
+
+      const chunks = [];
+      file.on("data", (data) => chunks.push(data));
+      file.on("limit", () => reject(new Error("File too large")));
+      file.on("end", () => {
+        fileBuffer = Buffer.concat(chunks);
+      });
     });
+
+    bb.on("error", reject);
+    bb.on("finish", () => {
+      resolve({ fileBuffer, fileName, mimeType });
+    });
+
+    req.pipe(bb);
+  });
+}
+
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
+
+export default async function handler(req, res) {
+  setCors(res);
+
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
   }
 
-  console.log("Upload request received");
-
-  if (request.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Method not allowed" }), {
-      status: 405,
-      headers: {
-        "Content-Type": "application/json",
-        ...corsHeaders(),
-      },
-    });
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
   }
 
   try {
-    const formData = await request.formData();
-    const file = formData.get("file");
+    const { fileBuffer, fileName, mimeType } = await parseMultipart(req);
 
-    if (!file) {
-      console.log("No file provided in request");
-      return new Response(JSON.stringify({ error: "No file provided" }), {
-        status: 400,
-        headers: {
-          "Content-Type": "application/json",
-          ...corsHeaders(),
-        },
-      });
+    if (!fileBuffer || !fileName) {
+      return res.status(400).json({ error: "No file provided" });
     }
 
-    console.log("File received:", file.name, "Size:", file.size);
-
-    const blob = await put(file.name, file, {
+    const safeName = `${Date.now()}-${fileName}`;
+    const blob = await put(safeName, fileBuffer, {
       access: "public",
+      contentType: mimeType || undefined,
     });
 
-    console.log("Upload successful:", blob.url);
-
-    return new Response(JSON.stringify({ url: blob.url }), {
-      status: 200,
-      headers: {
-        "Content-Type": "application/json",
-        ...corsHeaders(),
-      },
-    });
+    return res.status(200).json({ url: blob.url });
   } catch (error) {
-    console.error("Upload error details:", error);
-    console.error("Error message:", error.message);
-    console.error("Error stack:", error.stack);
-
-    return new Response(
-      JSON.stringify({
-        error: "Upload failed",
-        details: error.message,
-        stack: error.stack,
-      }),
-      {
-        status: 500,
-        headers: {
-          "Content-Type": "application/json",
-          ...corsHeaders(),
-        },
-      },
-    );
+    return res
+      .status(500)
+      .json({ error: "Upload failed", details: error?.message });
   }
 }
